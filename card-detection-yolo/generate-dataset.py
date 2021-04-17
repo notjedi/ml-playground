@@ -37,88 +37,55 @@ cv.line(alphamask,(CARDW-BORD_SIZE*3,0),(CARDW,BORD_SIZE*3),0,BORD_SIZE)
 cv.line(alphamask,(0,CARDH-BORD_SIZE*3),(BORD_SIZE*3,CARDH),0,BORD_SIZE)
 cv.line(alphamask,(CARDW-BORD_SIZE*3,CARDH),(CARDW,CARDH-BORD_SIZE*3),0,BORD_SIZE)
 
-def display(img):
-    cv.imshow("img",  img)
+# https://stackoverflow.com/a/40204315
+# https://stackoverflow.com/a/11627903
+
+def display(title, img):
+    cv.imshow(title,  img)
     cv.waitKey(0)
     cv.destroyAllWindows()
+
+
+def extractImage(img):
+
+    cannyImg = cv.Canny(cv.cvtColor(img,  cv.COLOR_BGR2GRAY), 400, 600)
+    copy = img.copy()
+    # https://stackoverflow.com/a/40741735
+    contour = max(cv.findContours(cannyImg,  cv.RETR_LIST, cv.CHAIN_APPROX_NONE)[0], key=cv.contourArea)
+
+    # https://docs.opencv.org/3.4/dd/d49/tutorial_py_contour_features.html
+    # https://docs.opencv.org/3.0-beta/doc/py_tutorials/py_imgproc/py_geometric_transformations/py_geometric_transformations.html#rotation
+    # rect = [(x and y of the center point),  (w and h), angle] i.e the output of minAreaRect()
+    rect = cv.minAreaRect(contour)
+    box = np.int0(cv.boxPoints(rect))
+    w, h = rect[1]
+    if (rect[1][0] > rect[1][1]):
+        h, w = rect[1]
+    destPts = np.array([[0, 0], [w, 0], [w, h], [0, h]]).astype(np.float32)
+    M = cv.getPerspectiveTransform(box.astype(np.float32), destPts)
+    perspectiveImage = cv.warpPerspective(img, M, (int(w), int(h)))
+
+    cv.drawContours(copy,  contour, -1, (0, 0, 255), 2, cv.LINE_AA)
+    cv.drawContours(copy, [box], 0, (255, 0, 0), 2)
+
+    rectArea = cv.contourArea(box)
+    contourArea = cv.contourArea(contour)
+    VALID_THRESHOLD = 0.95
+    isValid = contourArea/rectArea > VALID_THRESHOLD
+
+    display("Image with contours", copy)
+    display("Perspective Transform", perspectiveImage)
+
+    return isValid, perspectiveImage
+
 
 def main():
     path = os.path.join(TEST_DIR,  "scene.png")
     img = cv.imread(path)
-    copy = img.copy()
-    cannyImg = cv.Canny(cv.cvtColor(img,  cv.COLOR_BGR2GRAY), 400, 600)
-    display(cannyImg)
+    isValid, perspectiveImage = extractImage(img)
 
-    # https://stackoverflow.com/a/40741735
-    contour = max(cv.findContours(cannyImg,  cv.RETR_LIST, cv.CHAIN_APPROX_NONE)[0], key=cv.contourArea)
-    cv.drawContours(copy,  contour, -1, (0, 0, 255), 2, cv.LINE_AA)
-    contourArea = cv.contourArea(contour)
-
-    # https://stackoverflow.com/a/40204315
-    # x, y,w,h = cv.boundingRect(contour)
-    # cv.rectangle(img,  (x,y), (x+w,y+h), (255, 0, 0), 2)
-    # rectArea = w * h
-    # display(img)
-
-    # using this method instead of the above one cause it can find rotated rectangles and also gives the min area
-    # https://docs.opencv.org/3.4/dd/d49/tutorial_py_contour_features.html
-    # rect = [(x and y of the center point),  (w and h), angle] i.e the output of minAreaRect()
-    rect = cv.minAreaRect(contour)
-    box = np.int0(cv.boxPoints(rect))
-    cv.drawContours(copy, [box], 0, (255, 0, 0), 2)
-    rectArea = cv.contourArea(box)
-    # rectArea = rect[1][0] * rect[1][1]
-
-    VALID_THRESHOLD = 0.95
-    isValid = contourArea/rectArea > VALID_THRESHOLD
-    display(copy)
-
-    if (isValid):
-        (w, h) = rect[1]
-        if (w > h):
-            M = cv.getPerspectiveTransform(np.float32(box), REFCARD)
-        else:
-            M = cv.getPerspectiveTransform(np.float32(box), REFCARDROT)
-        imgwarp = cv.warpPerspective(img, M, (CARDW, CARDH))
-        imgwarp = cv.cvtColor(imgwarp, cv.COLOR_BGR2BGRA)
-        display(imgwarp)
-        
-        cnta = contour.reshape(1, -1, 2).astype(np.float32)
-        cntwarp = cv.perspectiveTransform(cnta, M)
-        cntwarp = cntwarp.astype(np.int16)
-
-        alphachannel = np.zeros(imgwarp.shape[:2], dtype=np.uint8)
-        # cv.drawContours(alphachannel, [cntwarp], 0, (255, 0, 0), -1)
-        
-        alphachannel = cv.bitwise_and(alphachannel, alphamask)
-        
-        imgwarp[:,:,3] = alphachannel
-        display(imgwarp)
-    else:
-        cv.destroyAllWindows()
+    if (not isValid):
         return
-
-    img = cropImage(img, rect)
-    display(img)
-
-    cv.destroyAllWindows()
-
-def cropImage(img, rect):
-
-    # https://stackoverflow.com/a/11627903
-    (center), (width, height), theta = rect
-    width, height = int(width), int(height)
-
-    matrix = cv.getRotationMatrix2D(center=center, angle=theta, scale=1)
-    img = cv.warpAffine(src=img, M=matrix, dsize=np.flip(img.shape[:2])) # expects shape in (length, height)
-
-    x = int(center[0] - width/2)
-    y = int(center[1] - height/2)
-    img = img[y:y+height, x:x+width]
-    # rotate image if it's horizontal, i.e if it's w > h
-    if (img.shape[0] < img.shape[1]):
-        img = cv.rotate(img, cv.ROTATE_90_CLOCKWISE)
-    return img
 
 
 if __name__ == "__main__":
