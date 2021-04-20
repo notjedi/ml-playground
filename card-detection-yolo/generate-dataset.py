@@ -2,40 +2,16 @@ import os
 import cv2 as cv
 import numpy as np
 import imgaug as ia
-import matplotlib.pyplot as PLT
+import matplotlib.pyplot as plt
+from collections import defaultdict
+from glob import glob
 
 DATA_DIR = "/mnt/Seagate/Code/ml-playground/card-detection-yolo/data"
 TEST_DIR = "/mnt/Seagate/Code/ml-playground/card-detection-yolo/test"
-
-CARDW=57
-CARDH=87
-CORNERXMIN=2
-CORNERXMAX=10.5
-CORNERYMIN=2.5
-CORNERYMAX=23
-
-# We convert the measures from mm to pixels: multiply by an arbitrary factor 'zoom'
-ZOOM=4
-CARDW*=ZOOM
-CARDH*=ZOOM
-CORNERXMIN=int(CORNERXMIN*ZOOM)
-CORNERXMAX=int(CORNERXMAX*ZOOM)
-CORNERYMIN=int(CORNERYMIN*ZOOM)
-CORNERYMAX=int(CORNERYMAX*ZOOM)
-
-REFCARD=np.array([[0, 0],[CARDW,0],[CARDW,CARDH],[0,CARDH]],dtype=np.float32)
-REFCARDROT=np.array([[CARDW, 0],[CARDW,CARDH],[0,CARDH],[0,0]],dtype=np.float32)
-REFCORNERHL=np.array([[CORNERXMIN, CORNERYMIN],[CORNERXMAX,CORNERYMIN],[CORNERXMAX,CORNERYMAX],[CORNERXMIN,CORNERYMAX]],dtype=np.float32)
-REFCORNERLR=np.array([[CARDW-CORNERXMAX, CARDH-CORNERYMAX],[CARDW-CORNERXMIN,CARDH-CORNERYMAX],[CARDW-CORNERXMIN,CARDH-CORNERYMIN],[CARDW-CORNERXMAX,CARDH-CORNERYMIN]],dtype=np.float32)
-REFCORNERS=np.array([REFCORNERHL, REFCORNERLR])
-
-BORD_SIZE=2 # bord_size alpha=0
-alphamask=np.ones((CARDH,CARDW),dtype=np.uint8)*255
-cv.rectangle(alphamask,(0,0),(CARDW-1,CARDH-1),0,BORD_SIZE)
-cv.line(alphamask,(BORD_SIZE*3,0),(0,BORD_SIZE*3),0,BORD_SIZE)
-cv.line(alphamask,(CARDW-BORD_SIZE*3,0),(CARDW,BORD_SIZE*3),0,BORD_SIZE)
-cv.line(alphamask,(0,CARDH-BORD_SIZE*3),(BORD_SIZE*3,CARDH),0,BORD_SIZE)
-cv.line(alphamask,(CARDW-BORD_SIZE*3,CARDH),(CARDW,CARDH-BORD_SIZE*3),0,BORD_SIZE)
+DTD_DIR="/mnt/Seagate/Code/ml-playground/card-detection-yolo/dtd/images"
+GENERATED_DIR = "{}/generated".format(DATA_DIR)
+CARD_SUITS=['s', 'h', 'd', 'c']
+CARD_VALUES=['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2']
 
 # Additional useful links
 # https://stackoverflow.com/a/40204315
@@ -55,6 +31,7 @@ class Card:
         cv.waitKey(0)
         cv.destroyAllWindows()
 
+    # https://stackoverflow.com/a/55153612
     @staticmethod
     def extractPoints(event, x, y, flags, parameters):
         if event == cv.EVENT_LBUTTONDOWN:
@@ -80,7 +57,7 @@ def display(title, img):
     cv.destroyAllWindows()
 
 
-def extractImage(img):
+def extractImage(img, debug=False):
 
     cannyImg = cv.Canny(cv.cvtColor(img,  cv.COLOR_BGR2GRAY), 400, 600)
     copy = img.copy()
@@ -110,27 +87,66 @@ def extractImage(img):
     cv.drawContours(copy,  contour, -1, (0, 0, 255), 2, cv.LINE_AA)
     cv.drawContours(copy, [box], 0, (255, 0, 0), 2)
 
-    display("Canny Image", cannyImg)
-    display("Image with contours", copy)
-    display("Perspective Transform", perspectiveImage)
+    if debug:
+        display("Canny Image", cannyImg)
+        display("Image with contours", copy)
+        display("Perspective Transform", perspectiveImage)
 
     return isValid, perspectiveImage
 
 
+def extractImagesFromVideo(path):
+
+    if not os.path.exists(path):
+        print('{} does not exist'.format(path))
+        return
+
+    cap = cv.VideoCapture(path)
+    basename = ''.join(os.path.basename(path).split('.')[:-1])
+    cards = []
+
+    i = 0
+    while (True):
+        ret, frame = cap.read()
+        if not ret:
+            break
+        isValid, processedImage = extractImage(frame)
+        if not isValid:
+            continue
+        i += 1
+        cards.append(processedImage)
+        cv.imwrite('{}/{}_{}.png'.format(GENERATED_DIR, basename, i), processedImage)
+
+    cap.release()
+    return cards
+
+
 def main():
-    path = os.path.join(TEST_DIR,  "scene.png")
+    path = os.path.join(TEST_DIR,  "sample.png")
     img = cv.imread(path)
-    isValid, perspectiveImage = extractImage(img)
+    isValid, perspectiveImage = extractImage(img, debug=True)
 
     if (not isValid):
         return
 
+    # backgrounds = []
+    # for dir in glob(DTD_DIR + "/*"):
+    #     for file in glob(dir + "/*.jpg"):
+    #         backgrounds.append(cv.imread(file))
+    # print(f'Total backgrounds: {len(backgrounds)}')
+
     cv.namedWindow("Select Coordinates")
     cv.setMouseCallback("Select Coordinates", Card.extractPoints)
-
     Card.sample = perspectiveImage.copy()
     Card.findConvexHull()
-    card = Card(perspectiveImage)
+
+    cards = defaultdict(list)
+    for suit in CARD_SUITS:
+        for value in CARD_VALUES:
+            path = '{}/{}.avi'.format(TEST_DIR, ''.join([value, suit]))
+            processedCards = extractImagesFromVideo(path)
+            cards[f'{value}{suit}'].append(processedCards)
+
 
 
 if __name__ == "__main__":
