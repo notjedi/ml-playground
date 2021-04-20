@@ -37,8 +37,42 @@ cv.line(alphamask,(CARDW-BORD_SIZE*3,0),(CARDW,BORD_SIZE*3),0,BORD_SIZE)
 cv.line(alphamask,(0,CARDH-BORD_SIZE*3),(BORD_SIZE*3,CARDH),0,BORD_SIZE)
 cv.line(alphamask,(CARDW-BORD_SIZE*3,CARDH),(CARDW,CARDH-BORD_SIZE*3),0,BORD_SIZE)
 
+# Additional useful links
 # https://stackoverflow.com/a/40204315
 # https://stackoverflow.com/a/11627903
+
+class Card:
+
+    hullCoordinates = []
+    sample = None
+
+    def __init__(self, img):
+        self.img = img
+        self.copy = img.copy()
+
+    def display(self):
+        cv.imshow(self.img)
+        cv.waitKey(0)
+        cv.destroyAllWindows()
+
+    @staticmethod
+    def extractPoints(event, x, y, flags, parameters):
+        if event == cv.EVENT_LBUTTONDOWN:
+            Card.hullCoordinates.append((x, y))
+        elif event == cv.EVENT_LBUTTONUP:
+            Card.hullCoordinates.append((x, y))
+            cv.rectangle(Card.sample, Card.hullCoordinates[-2], Card.hullCoordinates[-1], (36,255,12), 2)
+
+    @staticmethod
+    def findConvexHull():
+        while True:
+            cv.imshow("Select Coordinates", Card.sample)
+            key = cv.waitKey(1) & 0xFF
+            if key == ord('q'):
+                cv.destroyAllWindows()
+                break
+        print(Card.hullCoordinates)
+
 
 def display(title, img):
     cv.imshow(title,  img)
@@ -58,6 +92,14 @@ def extractImage(img):
     # rect = [(x and y of the center point),  (w and h), angle] i.e the output of minAreaRect()
     rect = cv.minAreaRect(contour)
     box = np.int0(cv.boxPoints(rect))
+
+    rectArea = cv.contourArea(box)
+    contourArea = cv.contourArea(contour)
+    VALID_THRESHOLD = 0.95
+    isValid = contourArea/rectArea > VALID_THRESHOLD
+    if (not isValid):
+        return isValid, None
+
     w, h = rect[1]
     if (rect[1][0] > rect[1][1]):
         h, w = rect[1]
@@ -68,11 +110,7 @@ def extractImage(img):
     cv.drawContours(copy,  contour, -1, (0, 0, 255), 2, cv.LINE_AA)
     cv.drawContours(copy, [box], 0, (255, 0, 0), 2)
 
-    rectArea = cv.contourArea(box)
-    contourArea = cv.contourArea(contour)
-    VALID_THRESHOLD = 0.95
-    isValid = contourArea/rectArea > VALID_THRESHOLD
-
+    display("Canny Image", cannyImg)
     display("Image with contours", copy)
     display("Perspective Transform", perspectiveImage)
 
@@ -86,6 +124,13 @@ def main():
 
     if (not isValid):
         return
+
+    cv.namedWindow("Select Coordinates")
+    cv.setMouseCallback("Select Coordinates", Card.extractPoints)
+
+    Card.sample = perspectiveImage.copy()
+    Card.findConvexHull()
+    card = Card(perspectiveImage)
 
 
 if __name__ == "__main__":
