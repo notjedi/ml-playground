@@ -1,7 +1,8 @@
 import os
 import cv2 as cv
 import numpy as np
-import imgaug as ia
+import imgaug.augmenters as iaa
+from imgaug.augmentables import Keypoint, KeypointsOnImage
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from glob import glob
@@ -35,10 +36,11 @@ class Card:
     @staticmethod
     def extractPoints(event, x, y, flags, parameters):
         if event == cv.EVENT_LBUTTONDOWN:
-            Card.hullCoordinates.append((x, y))
+            Card.hullCoordinates.append([x, y])
         elif event == cv.EVENT_LBUTTONUP:
-            Card.hullCoordinates.append((x, y))
-            cv.rectangle(Card.sample, Card.hullCoordinates[-2], Card.hullCoordinates[-1], (36,255,12), 2)
+            cv.rectangle(Card.sample, (Card.hullCoordinates[-1][:2]), (x, y), (36,255,12), 2)
+            x, y = (x - Card.hullCoordinates[-1][0], y - Card.hullCoordinates[-1][1])
+            Card.hullCoordinates[-1] = tuple(Card.hullCoordinates[-1] + [x, y])
 
     @staticmethod
     def findConvexHull():
@@ -48,7 +50,6 @@ class Card:
             if key == ord('q'):
                 cv.destroyAllWindows()
                 break
-        print(Card.hullCoordinates)
 
 
 def display(title, img):
@@ -98,8 +99,8 @@ def extractImage(img, debug=False):
 def extractImagesFromVideo(path):
 
     if not os.path.exists(path):
-        print('{} does not exist'.format(path))
-        return
+        # print('{} does not exist'.format(path))
+        return None
 
     cap = cv.VideoCapture(path)
     basename = ''.join(os.path.basename(path).split('.')[:-1])
@@ -121,6 +122,35 @@ def extractImagesFromVideo(path):
     return cards
 
 
+def generate2Cards(bg, img1, img2):
+
+    kps = []
+    for x, y, w, h in Card.hullCoordinates:
+        kps += [ Keypoint(x, y), Keypoint(x + w, y), Keypoint(x + w, y + h), Keypoint(x, y + h) ]
+
+    kps_on_image = KeypointsOnImage(kps, shape=img1.shape)
+    seq = iaa.Sequential([
+        iaa.Affine(scale=[0.65, 1]),
+        iaa.Affine(rotate=(-180, 180)),
+        iaa.Affine(translate_percent = {
+            "x": (-0.25, 0.25),
+            "y": (-0.25, 0.25)
+        }),
+    ])
+    seq = seq.to_deterministic()
+
+    img1_aug, kps1_aug = seq(image=img1, keypoints=kps_on_image)
+    # img2_aug, kps2_aug = seq(image=img2, keypoints=kps_on_image)
+    image_before = kps_on_image.draw_on_image(img1, size=7)
+    image_after = kps1_aug.draw_on_image(img1_aug, size=7)
+    display("before", image_before)
+    display("after", image_after)
+
+
+def getRandomIndex(input):
+    return np.random.randint(low=0, high=len(input)-1, size=1)[0]
+
+
 def main():
     path = os.path.join(TEST_DIR,  "sample.png")
     img = cv.imread(path)
@@ -129,24 +159,28 @@ def main():
     if (not isValid):
         return
 
-    # backgrounds = []
+    backgrounds = []
     # for dir in glob(DTD_DIR + "/*"):
-    #     for file in glob(dir + "/*.jpg"):
-    #         backgrounds.append(cv.imread(file))
-    # print(f'Total backgrounds: {len(backgrounds)}')
+    # for file in glob(dir + "banded/*.jpg"):
+    for file in glob(DTD_DIR + "/banded/*.jpg"):
+        backgrounds.append(cv.imread(file))
+    print(f'Total backgrounds: {len(backgrounds)}')
 
     cv.namedWindow("Select Coordinates")
     cv.setMouseCallback("Select Coordinates", Card.extractPoints)
     Card.sample = perspectiveImage.copy()
     Card.findConvexHull()
 
-    cards = defaultdict(list)
+    cards = {}
     for suit in CARD_SUITS:
         for value in CARD_VALUES:
             path = '{}/{}.avi'.format(TEST_DIR, ''.join([value, suit]))
             processedCards = extractImagesFromVideo(path)
-            cards[f'{value}{suit}'].append(processedCards)
-
+            if processedCards is not None:
+                cards[f'{value}{suit}'] = processedCards
+    
+    newImg = generate2Cards(backgrounds[getRandomIndex(backgrounds)], cards['2c'][getRandomIndex(cards['2c'])], cards['2c'][getRandomIndex(cards['2c'])])
+    display("Generated image", newImg)
 
 
 if __name__ == "__main__":
