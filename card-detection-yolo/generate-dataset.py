@@ -124,11 +124,24 @@ def extractImagesFromVideo(path):
 
 def generate2Cards(bg, img1, img2):
 
+    # TODO: check if the keypoints are out of the image after augmenting
+    # TODO: make sure the overlapping area of scaled_img1 and scaled_img2 is small
+    # TODO: scale transform of an image is > than the other one. make it deterministic?
     kps = []
-    for x, y, w, h in Card.hullCoordinates:
-        kps += [ Keypoint(x, y), Keypoint(x + w, y), Keypoint(x + w, y + h), Keypoint(x, y + h) ]
+    IMG_W, IMG_H = (720, 720)
+    CARD_W, CARD_H, _ = img1.shape
+    start_x, start_y = ((IMG_W-CARD_W)//2, (IMG_H-CARD_H)//2)
 
-    kps_on_image = KeypointsOnImage(kps, shape=img1.shape)
+    scaled_img1 = np.zeros((IMG_W, IMG_H, 3), dtype=np.uint8)
+    scaled_img1[start_x:start_x+CARD_W, start_y:start_y+CARD_H, :] = img1
+    CARD_W, CARD_H, _ = img2.shape
+    scaled_img2 = np.zeros((IMG_W, IMG_H, 3), dtype=np.uint8)
+    scaled_img2[start_x:start_x+CARD_W, start_y:start_y+CARD_H, :] = img2
+
+    for x, y, w, h in Card.hullCoordinates:
+        kps += [Keypoint(x+start_y, y+start_x), Keypoint(x+w+start_y, y+start_x), Keypoint(x+w+start_y, y+h+start_x), Keypoint(x+start_y, y+h+start_x)]
+
+    kps_on_image = KeypointsOnImage(kps, shape=scaled_img1.shape)
     seq = iaa.Sequential([
         iaa.Affine(scale=[0.65, 1]),
         iaa.Affine(rotate=(-180, 180)),
@@ -137,14 +150,21 @@ def generate2Cards(bg, img1, img2):
             "y": (-0.25, 0.25)
         }),
     ])
-    seq = seq.to_deterministic()
+    scale_bg =iaa.Resize({
+        "height": IMG_H,
+        "width": IMG_W
+    })
 
-    img1_aug, kps1_aug = seq(image=img1, keypoints=kps_on_image)
-    # img2_aug, kps2_aug = seq(image=img2, keypoints=kps_on_image)
-    image_before = kps_on_image.draw_on_image(img1, size=7)
-    image_after = kps1_aug.draw_on_image(img1_aug, size=7)
-    display("before", image_before)
-    display("after", image_after)
+    scaled_img1, kps1_aug = seq(image=scaled_img1, keypoints=kps_on_image)
+    scaled_img2, kps2_aug = seq(image=scaled_img2, keypoints=kps_on_image)
+    bg = scale_bg(image=bg)
+    img_aug = np.where(scaled_img1, scaled_img1, bg)
+    img_aug = np.where(scaled_img2, scaled_img2, img_aug)
+    # image_before = kps_on_image.draw_on_image(scaled_img1, size=2)
+    # image_after = kps1_aug.draw_on_image(img1_aug, size=2)
+    # display("before", image_before)
+    # display("after", image_after)
+    return img_aug
 
 
 def getRandomIndex(input):
