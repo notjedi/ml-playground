@@ -160,33 +160,32 @@ def generate2Cards(bg, img1, img2):
     })
 
     scaled_img1, kps1 = seq(image=scaled_img1, keypoints=kps)
+
     seq = seq.to_deterministic()[0]
-    scaled_img2 = seq.augment_images(images=[scaled_img2])[0]
-    kps2 = [seq.augment_keypoints(kps)][0]
-    card_kps = [seq.augment_keypoints(card_kps)][0]
-    # card_kps = seq.augment_keypoints([card_kps])[0]
+    scaled_img2 = seq.augment_image(scaled_img2)
+    kps2, card_kps = seq.augment_keypoints([kps, card_kps])[:]
 
-    poly1 = Polygon([(k.x, k.y) for k in kps1[:4]])
-    poly2 = Polygon([(k.x, k.y) for k in kps1[4:]])
-    poly3 = Polygon([(k.x, k.y) for k in kps2[:4]])
-    poly4 = Polygon([(k.x, k.y) for k in kps2[4:]])
+    img2Poly = Polygon([(k.x, k.y) for k in card_kps])
+    selected = [kps2[:4], kps2[4:]]
 
-    for p in [poly1, poly2]:
-        for k in [poly3, poly4]:
-            intersect = p.intersection(k)
-            if k.area - intersect.area > k.area * OVERLAP_RATIO:
-                pass
-                # return None
+    for i in range(0, 8, 4):
+        pts = kps1[i:i+4]
+        poly = Polygon([(p.x, p.y) for p in pts])
+        intersect = poly.intersection(img2Poly)
+        if not intersect.area > poly.area * OVERLAP_RATIO:
+            selected.append(pts)
+    
+    if len(selected) == 2:
+        return None
 
     bg = scale_bg(image=bg)
     img_aug = np.where(scaled_img1, scaled_img1, bg)
     img_aug = np.where(scaled_img2, scaled_img2, img_aug)
 
-    # image_after = kps1.draw_on_image(img_aug, size=5)
     # image_after = kps2.draw_on_image(img_aug, size=5)
     # image_after = card_kps.draw_on_image(image_after, size=5)
     # display("after", image_after)
-    return img_aug
+    return (img_aug, selected)
 
 
 def getRandomIndex(input):
@@ -222,7 +221,10 @@ def main():
                 cards[f'{value}{suit}'] = processedCards
     
     for _ in range(100):
-        newImg = generate2Cards(backgrounds[getRandomIndex(backgrounds)], cards['2c'][getRandomIndex(cards['2c'])], cards['2c'][getRandomIndex(cards['2c'])])
+        res = generate2Cards(backgrounds[getRandomIndex(backgrounds)], cards['2c'][getRandomIndex(cards['2c'])], cards['2c'][getRandomIndex(cards['2c'])])
+        if res == None:
+            continue
+        newImg, keypts = res
         # display("Generated image", newImg)
 
 
