@@ -4,8 +4,6 @@ import numpy as np
 from shapely.geometry import Polygon
 import imgaug.augmenters as iaa
 from imgaug.augmentables import Keypoint, KeypointsOnImage
-import matplotlib.pyplot as plt
-from collections import defaultdict
 from glob import glob
 
 DATA_DIR = "/mnt/Seagate/Code/ml-playground/card-detection-yolo/data"
@@ -107,7 +105,7 @@ def extractImagesFromVideo(path):
         return None
 
     cap = cv.VideoCapture(path)
-    basename = ''.join(os.path.basename(path).split('.')[:-1])
+    # basename = ''.join(os.path.basename(path).split('.')[:-1])
     cards = []
 
     i = 0
@@ -121,7 +119,7 @@ def extractImagesFromVideo(path):
         i += 1
         processedImage = cv.resize(processedImage, (CARD_W, CARD_H))
         cards.append(processedImage)
-        cv.imwrite('{}/{}_{}.png'.format(GENERATED_DIR, basename, i), processedImage)
+        # cv.imwrite('{}/{}_{}.png'.format(GENERATED_DIR, basename, i), processedImage)
 
     cap.release()
     return cards
@@ -147,6 +145,7 @@ def generate2Cards(bg, img1, img2):
     kps = KeypointsOnImage(kps, shape=scaled_img1.shape)
     card_kps = KeypointsOnImage(card_kps, shape=scaled_img2.shape)
     seq = iaa.Sequential([
+        # TODO: add Flipud() maybe
         iaa.Affine(scale=0.7),
         iaa.Affine(rotate=(-180, 180)),
         iaa.Affine(translate_percent = {
@@ -161,9 +160,11 @@ def generate2Cards(bg, img1, img2):
 
     scaled_img1, kps1 = seq(image=scaled_img1, keypoints=kps)
 
-    seq = seq.to_deterministic()[0]
+    # https://github.com/aleju/imgaug/issues/112#issuecomment-376561789
+    seq = seq.to_deterministic()
     scaled_img2 = seq.augment_image(scaled_img2)
-    kps2, card_kps = seq.augment_keypoints([kps, card_kps])[:]
+    kps2 = seq.augment_keypoints([kps])[0]
+    card_kps = seq.augment_keypoints([card_kps])[0]
 
     img2Poly = Polygon([(k.x, k.y) for k in card_kps])
     selected = [kps2[:4], kps2[4:]]
@@ -203,6 +204,7 @@ def main():
     backgrounds = []
     # for dir in glob(DTD_DIR + "/*"):
     # for file in glob(dir + "banded/*.jpg"):
+    # TODO: change to whole directory instead of only `banded/*`
     for file in glob(DTD_DIR + "/banded/*.jpg"):
         backgrounds.append(cv.imread(file))
     print(f'Total backgrounds: {len(backgrounds)}')
@@ -212,20 +214,22 @@ def main():
     Card.sample = perspectiveImage.copy()
     Card.findConvexHull()
 
-    cards = {}
     for suit in CARD_SUITS:
         for value in CARD_VALUES:
-            path = '{}/{}.avi'.format(TEST_DIR, ''.join([value, suit]))
-            processedCards = extractImagesFromVideo(path)
-            if processedCards is not None:
-                cards[f'{value}{suit}'] = processedCards
-    
-    for _ in range(100):
-        res = generate2Cards(backgrounds[getRandomIndex(backgrounds)], cards['2c'][getRandomIndex(cards['2c'])], cards['2c'][getRandomIndex(cards['2c'])])
-        if res == None:
-            continue
-        newImg, keypts = res
-        # display("Generated image", newImg)
+
+            val = f'{value}{suit}'
+            path = '{}/{}.avi'.format(TEST_DIR, val)
+            cards = extractImagesFromVideo(path)
+            if cards == None:
+                continue
+
+            for i in range(100):
+                res = generate2Cards(backgrounds[getRandomIndex(backgrounds)], cards[getRandomIndex(cards)], cards[getRandomIndex(cards)])
+                if res == None:
+                    continue
+                img, keypts = res
+                cv.imwrite('{}/{}_{}.png'.format(GENERATED_DIR, val, i), img)
+                # display("Generated image", img)
 
 
 if __name__ == "__main__":
