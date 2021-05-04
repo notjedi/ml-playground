@@ -1,6 +1,7 @@
 import os
 import cv2 as cv
 import numpy as np
+from shapely.geometry import Polygon
 import imgaug.augmenters as iaa
 from imgaug.augmentables import Keypoint, KeypointsOnImage
 import matplotlib.pyplot as plt
@@ -11,6 +12,9 @@ DATA_DIR = "/mnt/Seagate/Code/ml-playground/card-detection-yolo/data"
 TEST_DIR = "/mnt/Seagate/Code/ml-playground/card-detection-yolo/test"
 DTD_DIR="/mnt/Seagate/Code/ml-playground/card-detection-yolo/dtd/images"
 GENERATED_DIR = "{}/generated".format(DATA_DIR)
+IMG_W, IMG_H = (720, 720)
+CARD_W, CARD_H = (200, 300)
+OVERLAP_RATIO = 0.3
 CARD_SUITS=['s', 'h', 'd', 'c']
 CARD_VALUES=['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2']
 
@@ -115,6 +119,7 @@ def extractImagesFromVideo(path):
         if not isValid:
             continue
         i += 1
+        processedImage = cv.resize(processedImage, (CARD_W, CARD_H))
         cards.append(processedImage)
         cv.imwrite('{}/{}_{}.png'.format(GENERATED_DIR, basename, i), processedImage)
 
@@ -125,29 +130,28 @@ def extractImagesFromVideo(path):
 def generate2Cards(bg, img1, img2):
 
     # TODO: check if the keypoints are out of the image after augmenting
-    # TODO: make sure the overlapping area of scaled_img1 and scaled_img2 is small
-    # TODO: scale transform of an image is > than the other one. make it deterministic?
+    # the current values for translate_percent doesn't affect this but, if you change 
+    # translate_percent to a higher value you might have to check if the keypoints are within the image
     kps = []
-    IMG_W, IMG_H = (720, 720)
-    CARD_W, CARD_H, _ = img1.shape
     start_x, start_y = ((IMG_W-CARD_W)//2, (IMG_H-CARD_H)//2)
 
     scaled_img1 = np.zeros((IMG_W, IMG_H, 3), dtype=np.uint8)
-    scaled_img1[start_x:start_x+CARD_W, start_y:start_y+CARD_H, :] = img1
-    CARD_W, CARD_H, _ = img2.shape
+    scaled_img1[start_y:start_y+CARD_H, start_x:start_x+CARD_W, :] = img1
     scaled_img2 = np.zeros((IMG_W, IMG_H, 3), dtype=np.uint8)
-    scaled_img2[start_x:start_x+CARD_W, start_y:start_y+CARD_H, :] = img2
+    scaled_img2[start_y:start_y+CARD_H, start_x:start_x+CARD_W, :] = img2
 
+    card_kps = [Keypoint(start_x, start_y), Keypoint(CARD_W+start_x, start_y), Keypoint(CARD_W+start_x, CARD_H+start_y), Keypoint(start_x, CARD_H+start_y)]
     for x, y, w, h in Card.hullCoordinates:
-        kps += [Keypoint(x+start_y, y+start_x), Keypoint(x+w+start_y, y+start_x), Keypoint(x+w+start_y, y+h+start_x), Keypoint(x+start_y, y+h+start_x)]
+        kps += [Keypoint(x+start_x, y+start_y), Keypoint(x+w+start_x, y+start_y), Keypoint(x+w+start_x, y+h+start_y), Keypoint(x+start_x, y+h+start_y)]
 
-    kps_on_image = KeypointsOnImage(kps, shape=scaled_img1.shape)
+    kps = KeypointsOnImage(kps, shape=scaled_img1.shape)
+    card_kps = KeypointsOnImage(card_kps, shape=scaled_img2.shape)
     seq = iaa.Sequential([
-        iaa.Affine(scale=[0.65, 1]),
+        iaa.Affine(scale=0.7),
         iaa.Affine(rotate=(-180, 180)),
         iaa.Affine(translate_percent = {
-            "x": (-0.25, 0.25),
-            "y": (-0.25, 0.25)
+            "x": (-0.3, 0.3),
+            "y": (-0.3, 0.3)
         }),
     ])
     scale_bg =iaa.Resize({
@@ -155,14 +159,32 @@ def generate2Cards(bg, img1, img2):
         "width": IMG_W
     })
 
-    scaled_img1, kps1_aug = seq(image=scaled_img1, keypoints=kps_on_image)
-    scaled_img2, kps2_aug = seq(image=scaled_img2, keypoints=kps_on_image)
+    scaled_img1, kps1 = seq(image=scaled_img1, keypoints=kps)
+    seq = seq.to_deterministic()[0]
+    scaled_img2 = seq.augment_images(images=[scaled_img2])[0]
+    kps2 = [seq.augment_keypoints(kps)][0]
+    card_kps = [seq.augment_keypoints(card_kps)][0]
+    # card_kps = seq.augment_keypoints([card_kps])[0]
+
+    poly1 = Polygon([(k.x, k.y) for k in kps1[:4]])
+    poly2 = Polygon([(k.x, k.y) for k in kps1[4:]])
+    poly3 = Polygon([(k.x, k.y) for k in kps2[:4]])
+    poly4 = Polygon([(k.x, k.y) for k in kps2[4:]])
+
+    for p in [poly1, poly2]:
+        for k in [poly3, poly4]:
+            intersect = p.intersection(k)
+            if k.area - intersect.area > k.area * OVERLAP_RATIO:
+                pass
+                # return None
+
     bg = scale_bg(image=bg)
     img_aug = np.where(scaled_img1, scaled_img1, bg)
     img_aug = np.where(scaled_img2, scaled_img2, img_aug)
-    # image_before = kps_on_image.draw_on_image(scaled_img1, size=2)
-    # image_after = kps1_aug.draw_on_image(img1_aug, size=2)
-    # display("before", image_before)
+
+    # image_after = kps1.draw_on_image(img_aug, size=5)
+    # image_after = kps2.draw_on_image(img_aug, size=5)
+    # image_after = card_kps.draw_on_image(image_after, size=5)
     # display("after", image_after)
     return img_aug
 
@@ -199,8 +221,9 @@ def main():
             if processedCards is not None:
                 cards[f'{value}{suit}'] = processedCards
     
-    newImg = generate2Cards(backgrounds[getRandomIndex(backgrounds)], cards['2c'][getRandomIndex(cards['2c'])], cards['2c'][getRandomIndex(cards['2c'])])
-    display("Generated image", newImg)
+    for _ in range(100):
+        newImg = generate2Cards(backgrounds[getRandomIndex(backgrounds)], cards['2c'][getRandomIndex(cards['2c'])], cards['2c'][getRandomIndex(cards['2c'])])
+        # display("Generated image", newImg)
 
 
 if __name__ == "__main__":
