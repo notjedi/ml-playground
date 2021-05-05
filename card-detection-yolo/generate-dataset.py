@@ -3,8 +3,8 @@ import random
 import cv2 as cv
 import numpy as np
 import imgaug.augmenters as iaa
-from tqdm import trange
 from glob import glob
+from tqdm import tqdm, trange
 from collections import defaultdict
 from shapely.geometry import Polygon
 from pascal_voc_writer import Writer
@@ -30,8 +30,10 @@ CARD_VALUES=['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2']
 
 class Card:
 
+    card_kps = [Keypoint(START_X, START_Y), Keypoint(CARD_W+START_X, START_Y), Keypoint(CARD_W+START_X, CARD_H+START_Y), Keypoint(START_X, CARD_H+START_Y)]
     hullCoordinates = []
     sample = None
+    kps = []
 
     def __init__(self, img):
         self.img = img
@@ -60,6 +62,11 @@ class Card:
             if key == ord('q'):
                 cv.destroyAllWindows()
                 break
+
+    @staticmethod
+    def calcKps():
+        for x, y, w, h in Card.hullCoordinates:
+            Card.kps += [Keypoint(x+START_X, y+START_Y), Keypoint(x+w+START_X, y+START_Y), Keypoint(x+w+START_X, y+h+START_Y), Keypoint(x+START_X, y+h+START_Y)]
 
 
 def display(title, img):
@@ -165,13 +172,9 @@ def generate2Cards(bg, img1, img2, name1, name2):
     scaled_img1[START_Y:START_Y+CARD_H, START_X:START_X+CARD_W, :] = img1
     scaled_img2[START_Y:START_Y+CARD_H, START_X:START_X+CARD_W, :] = img2
 
-    kps = []
-    card_kps = [Keypoint(START_X, START_Y), Keypoint(CARD_W+START_X, START_Y), Keypoint(CARD_W+START_X, CARD_H+START_Y), Keypoint(START_X, CARD_H+START_Y)]
-    for x, y, w, h in Card.hullCoordinates:
-        kps += [Keypoint(x+START_X, y+START_Y), Keypoint(x+w+START_X, y+START_Y), Keypoint(x+w+START_X, y+h+START_Y), Keypoint(x+START_X, y+h+START_Y)]
 
-    kps = KeypointsOnImage(kps, shape=scaled_img1.shape)
-    card_kps = KeypointsOnImage(card_kps, shape=scaled_img2.shape)
+    kps = KeypointsOnImage(Card.kps, shape=scaled_img1.shape)
+    card_kps = KeypointsOnImage(Card.card_kps, shape=scaled_img2.shape)
 
     scaled_img1, kps1 = seq(image=scaled_img1, keypoints=kps)
     # https://github.com/aleju/imgaug/issues/112#issuecomment-376561789
@@ -196,7 +199,7 @@ def generate2Cards(bg, img1, img2, name1, name2):
     bbs = [kpsToBB(name2, kp) for kp in selected[:2]]
     bbs += [kpsToBB(name1, kp) for kp in selected[2:]]
 
-    # bbs_img = BoundingBoxesOnImage([kpsToBB(kp) for kp in selected], shape=scaled_img2.shape)
+    # bbs_img = BoundingBoxesOnImage(bbs, shape=img_aug.shape)
     # image_after = kps2.draw_on_image(img_aug, size=5)
     # image_after = card_kps.draw_on_image(image_after, size=5)
     # image_after = bbs_img.draw_on_image(img_aug)
@@ -229,7 +232,7 @@ def main():
     # for dir in glob(DTD_DIR + "/*"):
     # for file in glob(dir + "banded/*.jpg"):
     # TODO: change to whole directory instead of only `banded/*`
-    for file in glob(DTD_DIR + "/banded/*.jpg"):
+    for file in tqdm(glob(DTD_DIR + "/banded/*.jpg")):
         backgrounds.append(cv.imread(file))
     print(f'Total backgrounds: {len(backgrounds)}')
 
@@ -237,6 +240,7 @@ def main():
     cv.setMouseCallback("Select Coordinates", Card.extractPoints)
     Card.sample = perspectiveImage.copy()
     Card.findConvexHull()
+    Card.calcKps()
 
     cards = defaultdict(list)
     for suit in CARD_SUITS:
