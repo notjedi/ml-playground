@@ -74,6 +74,12 @@ def display(title, img):
     cv.waitKey(0)
     cv.destroyAllWindows()
 
+def getRandomIndex(input):
+    return np.random.randint(0, len(input)-1, size=1)[0]
+
+def getRandomCard(cards):
+    name = random.choice(list(cards.keys()))
+    return (cards[name][getRandomIndex(cards[name])],  name)
 
 def extractImage(img, debug=False):
 
@@ -112,7 +118,6 @@ def extractImage(img, debug=False):
 
     return isValid, perspectiveImage
 
-
 def extractImagesFromVideo(path):
 
     if not os.path.exists(path):
@@ -139,7 +144,6 @@ def extractImagesFromVideo(path):
     cap.release()
     return cards
 
-
 def kpsToBB(name, kps):
     kpx = [kp.x for kp in kps]
     kpy = [kp.y for kp in kps]
@@ -147,8 +151,14 @@ def kpsToBB(name, kps):
     maxx, maxy = max(kpx), max(kpy)
     return BoundingBox(label=name, x1=minx, y1=miny, x2=maxx, y2=maxy)
 
+def createVocFile(fileName, listBbs):
+    vocFile = Writer(fileName, IMG_W, IMG_H)
+    for bbs in listBbs:
+        vocFile.addObject(bbs.label, bbs.x1, bbs.y1, bbs.x2, bbs.y2)
+    vocFile.save(fileName.replace('png', 'xml'))
 
-def generate2Cards(bg, img1, img2, name1, name2):
+
+def generate2Cards(bg, img1, img2, name1, name2, debug=False):
 
     # TODO: check if the keypoints are out of the image after augmenting
     # the current values for translate_percent doesn't affect this but, if you change 
@@ -199,34 +209,20 @@ def generate2Cards(bg, img1, img2, name1, name2):
     bbs = [kpsToBB(name2, kp) for kp in selected[:2]]
     bbs += [kpsToBB(name1, kp) for kp in selected[2:]]
 
-    # bbs_img = BoundingBoxesOnImage(bbs, shape=img_aug.shape)
-    # image_after = kps2.draw_on_image(img_aug, size=5)
-    # image_after = card_kps.draw_on_image(image_after, size=5)
-    # image_after = bbs_img.draw_on_image(img_aug)
-    # display("after", image_after)
+    if debug:
+        bbs_img = BoundingBoxesOnImage(bbs, shape=img_aug.shape)
+        image_after = kps2.draw_on_image(img_aug, size=5)
+        image_after = card_kps.draw_on_image(image_after, size=5)
+        image_after = bbs_img.draw_on_image(img_aug)
+        display("after", image_after)
+
     return (img_aug, bbs)
 
 
-def getRandomIndex(input):
-    return np.random.randint(0, len(input)-1, size=1)[0]
-
-def getRandomCard(cards):
-    name = random.choice(list(cards.keys()))
-    return (cards[name][getRandomIndex(cards[name])],  name)
-
-def createVocFile(fileName, listBbs):
-    vocFile = Writer(fileName, IMG_W, IMG_H)
-    for bbs in listBbs:
-        vocFile.addObject(bbs.label, bbs.x1, bbs.y1, bbs.x2, bbs.y2)
-    vocFile.save(fileName.replace('png', 'xml'))
-
 def main():
-    path = os.path.join(TEST_DIR,  "sample.png")
-    img = cv.imread(path)
-    isValid, perspectiveImage = extractImage(img, debug=True)
-
-    if (not isValid):
-        return
+    testFilePath = os.path.join(TEST_DIR,  "sample.png")
+    testImg = cv.imread(testFilePath)
+    _, perspectiveImage = extractImage(testImg)
 
     backgrounds = []
     # for dir in glob(DTD_DIR + "/*"):
