@@ -24,6 +24,43 @@ OVERLAP_RATIO = 0.2
 CARD_SUITS=['s', 'h', 'd', 'c']
 CARD_VALUES=['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2']
 
+sequential = iaa.Sequential([
+    # TODO: add Flipud() maybe
+    iaa.Affine(scale=0.7),
+    iaa.Affine(rotate=(-180, 180)),
+    iaa.Affine(translate_percent = {
+        "x": (-0.3, 0.3),
+        "y": (-0.3, 0.3)
+    }),
+])
+seq1 = iaa.Sequential([
+    iaa.Affine(rotate=(-15, -20)),
+    iaa.Affine(translate_percent={
+        "x": (-0.12, -0.15),
+    })
+])
+seq2= iaa.Sequential([
+    iaa.Affine(rotate=(-7, -10)),
+    iaa.Affine(translate_percent={
+        "x": (-0.07, -0.1),
+    })
+])
+seq3= iaa.Sequential([
+    iaa.Affine(rotate=(-2, -5)),
+])
+rot_3images = iaa.Sequential([
+    iaa.Affine(rotate=(-180, 180)),
+    iaa.Affine(scale=[0.7, 0.9]),
+    iaa.Affine(translate_percent={
+        "x": (-0.18, 0.18),
+        "y": (-0.18, 0.18)
+    })
+])
+scale_bg =iaa.Resize({
+    "height": IMG_H,
+    "width": IMG_W
+})
+
 # Additional useful links
 # https://stackoverflow.com/a/40204315
 # https://stackoverflow.com/a/11627903
@@ -74,12 +111,15 @@ def display(title, img):
     cv.waitKey(0)
     cv.destroyAllWindows()
 
+
 def getRandomIndex(input):
     return np.random.randint(0, len(input)-1, size=1)[0]
+
 
 def getRandomCard(cards):
     name = random.choice(list(cards.keys()))
     return (cards[name][getRandomIndex(cards[name])],  name)
+
 
 def extractImage(img, debug=False):
 
@@ -118,6 +158,7 @@ def extractImage(img, debug=False):
 
     return isValid, perspectiveImage
 
+
 def extractImagesFromVideo(path):
 
     if not os.path.exists(path):
@@ -144,6 +185,7 @@ def extractImagesFromVideo(path):
     cap.release()
     return cards
 
+
 def kpsToBB(name, kps):
     kpx = [kp.x for kp in kps]
     kpy = [kp.y for kp in kps]
@@ -151,47 +193,41 @@ def kpsToBB(name, kps):
     maxx, maxy = max(kpx), max(kpy)
     return BoundingBox(label=name, x1=minx, y1=miny, x2=maxx, y2=maxy)
 
+
 def createVocFile(fileName, listBbs):
     vocFile = Writer(fileName, IMG_W, IMG_H)
     for bbs in listBbs:
         vocFile.addObject(bbs.label, bbs.x1, bbs.y1, bbs.x2, bbs.y2)
     vocFile.save(fileName.replace('png', 'xml'))
 
+def augment(img, kps, aug, deterministic=False):
+    if deterministic:
+        aug = aug.to_deterministic()
+        img = aug.augment_image(img)
+        kps_aug = []
+        for kp in kps:
+            kps_aug.append(aug.augment_keypoints([kp])[0])
+    else:
+        img, kps_aug = aug(image=img, keypoints=kps)
+    return img, kps_aug
 
 def generate2Cards(bg, img1, img2, name1, name2, debug=False):
 
     # TODO: check if the keypoints are out of the image after augmenting
     # the current values for translate_percent doesn't affect this but, if you change 
     # translate_percent to a higher value you might have to check if the keypoints are within the image
-    seq = iaa.Sequential([
-        # TODO: add Flipud() maybe
-        iaa.Affine(scale=0.7),
-        iaa.Affine(rotate=(-180, 180)),
-        iaa.Affine(translate_percent = {
-            "x": (-0.3, 0.3),
-            "y": (-0.3, 0.3)
-        }),
-    ])
-    scale_bg =iaa.Resize({
-        "height": IMG_H,
-        "width": IMG_W
-    })
 
     scaled_img1 = np.zeros((IMG_W, IMG_H, 3), dtype=np.uint8)
     scaled_img2 = np.zeros((IMG_W, IMG_H, 3), dtype=np.uint8)
     scaled_img1[START_Y:START_Y+CARD_H, START_X:START_X+CARD_W, :] = img1
     scaled_img2[START_Y:START_Y+CARD_H, START_X:START_X+CARD_W, :] = img2
 
-
     kps = KeypointsOnImage(Card.kps, shape=scaled_img1.shape)
     card_kps = KeypointsOnImage(Card.card_kps, shape=scaled_img2.shape)
 
-    scaled_img1, kps1 = seq(image=scaled_img1, keypoints=kps)
+    scaled_img1, kps1 = augment(scaled_img1, kps, sequential)
     # https://github.com/aleju/imgaug/issues/112#issuecomment-376561789
-    seq = seq.to_deterministic()
-    scaled_img2 = seq.augment_image(scaled_img2)
-    kps2 = seq.augment_keypoints([kps])[0]
-    card_kps = seq.augment_keypoints([card_kps])[0]
+    scaled_img2, (kps2, card_kps) = augment(scaled_img2, [kps, card_kps], sequential, True)
 
     img2Poly = Polygon([(k.x, k.y) for k in card_kps])
     selected = [kps2[:4], kps2[4:]]
@@ -202,7 +238,7 @@ def generate2Cards(bg, img1, img2, name1, name2, debug=False):
         intersect = poly.intersection(img2Poly)
         if intersect.area < poly.area * OVERLAP_RATIO:
             selected.append(pts)
-    
+
     bg = scale_bg(image=bg)
     img_aug = np.where(scaled_img1, scaled_img1, bg)
     img_aug = np.where(scaled_img2, scaled_img2, img_aug)
@@ -211,12 +247,48 @@ def generate2Cards(bg, img1, img2, name1, name2, debug=False):
 
     if debug:
         bbs_img = BoundingBoxesOnImage(bbs, shape=img_aug.shape)
-        image_after = kps2.draw_on_image(img_aug, size=5)
+        image_after = kps1.draw_on_image(img_aug, size=5)
+        image_after = kps2.draw_on_image(image_after, size=5)
         image_after = card_kps.draw_on_image(image_after, size=5)
-        image_after = bbs_img.draw_on_image(img_aug)
+        image_after = bbs_img.draw_on_image(image_after)
         display("after", image_after)
 
     return (img_aug, bbs)
+
+
+def generate3Cards(bg, img1, img2, img3, name1, name2, name3, debug=True):
+    scaled_img1 = np.zeros((IMG_W, IMG_H, 3), dtype=np.uint8)
+    scaled_img2 = np.zeros((IMG_W, IMG_H, 3), dtype=np.uint8)
+    scaled_img3 = np.zeros((IMG_W, IMG_H, 3), dtype=np.uint8)
+    scaled_img1[START_Y:START_Y+CARD_H, START_X:START_X+CARD_W, :] = img1
+    scaled_img2[START_Y:START_Y+CARD_H, START_X:START_X+CARD_W, :] = img2
+    scaled_img3[START_Y:START_Y+CARD_H, START_X:START_X+CARD_W, :] = img3
+
+    kps = KeypointsOnImage(Card.kps, shape=scaled_img1.shape)
+
+    img1, kps1 = augment(scaled_img1, kps[:4], seq1)
+    img2, kps2 = augment(scaled_img2, kps[:4], seq2)
+    img3, kps3 = augment(scaled_img3, kps, seq3)
+    kps1 = KeypointsOnImage(kps1, shape=scaled_img1.shape)
+    kps2 = KeypointsOnImage(kps2, shape=scaled_img2.shape)
+    bg = scale_bg(image=bg)
+
+    img_aug = np.where(img2, img2, img1)
+    img_aug = np.where(img3, img3, img_aug)
+    img_aug, (kps_aug) = augment(img_aug, [kps1, kps2, kps3], rot_3images, True)
+    img_aug = np.where(img_aug, img_aug, bg)
+    bbs = [kpsToBB(name1, kps_aug[0])]
+    bbs += [kpsToBB(name2, kps_aug[1])]
+    bbs += [kpsToBB(name3, kps_aug[2][:4])]
+    bbs += [kpsToBB(name3, kps_aug[2][4:])]
+
+    if debug:
+        bbs_img = BoundingBoxesOnImage(bbs, shape=img_aug.shape)
+        # image_after = kps_aug.draw_on_image(image_after, size=5)
+        image_after = bbs_img.draw_on_image(img_aug)
+        display('3 cards', image_after)
+
+    return img_aug, bbs
 
 
 def main():
@@ -224,6 +296,7 @@ def main():
     testImg = cv.imread(testFilePath)
     _, perspectiveImage = extractImage(testImg)
 
+    # load backgrounds
     backgrounds = []
     # for dir in glob(DTD_DIR + "/*"):
     # for file in glob(dir + "banded/*.jpg"):
@@ -232,12 +305,15 @@ def main():
         backgrounds.append(cv.imread(file))
     print(f'Total backgrounds: {len(backgrounds)}')
 
+    # get the hull coordinates, i tried to automate it but it didn't go as 
+    # expected cause i wanted something that worked on all datasets(different kind of images)
     cv.namedWindow("Select Coordinates")
     cv.setMouseCallback("Select Coordinates", Card.extractPoints)
     Card.sample = perspectiveImage.copy()
     Card.findConvexHull()
     Card.calcKps()
 
+    # extract image from video and store it in a dict
     cards = defaultdict(list)
     for suit in CARD_SUITS:
         for value in CARD_VALUES:
@@ -248,14 +324,21 @@ def main():
                 continue
             cards[val] += processedCards
 
-    for i in trange(1, 101):
+    for _ in range(100):
         img1, name1 = getRandomCard(cards)
         img2, name2 = getRandomCard(cards)
-        img, bbs = generate2Cards(backgrounds[getRandomIndex(backgrounds)], img1, img2, name1, name2)
-        imgPath = '{}/{}.png'.format(GENERATED_DIR, i)
-        cv.imwrite(imgPath, img)
-        createVocFile(imgPath, bbs)
-        # display("Generated image", img)
+        img3, name3 = getRandomCard(cards)
+        generate3Cards(backgrounds[getRandomIndex(backgrounds)], img1, img2, img3, name1, name2, name3)
+
+    # generate images with 2 cards w random orientation
+    # for i in trange(1, 101):
+    #     img1, name1 = getRandomCard(cards)
+    #     img2, name2 = getRandomCard(cards)
+    #     img, bbs = generate2Cards(backgrounds[getRandomIndex(backgrounds)], img1, img2, name1, name2, True)
+    #     imgPath = '{}/{}.png'.format(GENERATED_DIR, i)
+    #     cv.imwrite(imgPath, img)
+    #     createVocFile(imgPath, bbs)
+    #     display("Generated image", img)
 
 
 if __name__ == "__main__":
