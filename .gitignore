@@ -128,5 +128,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-card-detection-yolo/data/*
+card-detection-yolo/data/generated/*
 card-detection-yolo/dtd/*
