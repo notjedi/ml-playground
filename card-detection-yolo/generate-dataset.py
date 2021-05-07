@@ -20,6 +20,8 @@ IMG_W, IMG_H = (704, 704)
 CARD_W, CARD_H = (200, 300)
 START_X, START_Y = ((IMG_W-CARD_W)//2, (IMG_H-CARD_H)//2)
 OVERLAP_RATIO = 0.2
+DEBUG = False
+LIMIT = 100
 
 CARD_SUITS=['s', 'h', 'd', 'c']
 CARD_VALUES=['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2']
@@ -151,6 +153,7 @@ def extractImage(img, debug=False):
     destPts = np.array([[0, 0], [w, 0], [w, h], [0, h]]).astype(np.float32)
     M = cv.getPerspectiveTransform(box.astype(np.float32), destPts)
     perspectiveImage = cv.warpPerspective(img, M, (int(w), int(h)))
+    perspectiveImage = cv.resize(perspectiveImage, (CARD_W, CARD_H))
 
     cv.drawContours(copy,  contour, -1, (0, 0, 255), 2, cv.LINE_AA)
     cv.drawContours(copy, [box], 0, (255, 0, 0), 2)
@@ -166,7 +169,7 @@ def extractImage(img, debug=False):
 def modifyImages(img):
     cards = []
     for _ in range(50):
-        modImg = cv.resize(mod(image=img), (CARD_W, CARD_H))
+        modImg = mod(image=img)
         cards.append(modImg)
     return cards
 
@@ -190,7 +193,6 @@ def extractImagesFromVideo(path):
         if not isValid:
             continue
         i += 1
-        processedImage = cv.resize(processedImage, (CARD_W, CARD_H))
         cards.append(processedImage)
         # cv.imwrite('{}/{}_{}.png'.format(GENERATED_DIR, basename, i), processedImage)
 
@@ -263,7 +265,8 @@ def generate2Cards(bg, img1, img2, name1, name2, debug=False):
         image_after = kps2.draw_on_image(image_after, size=5)
         image_after = card_kps.draw_on_image(image_after, size=5)
         image_after = bbs_img.draw_on_image(image_after)
-        display("after", image_after)
+        display("Generated image", img_aug)
+        display("2 cards", image_after)
 
     return (img_aug, bbs)
 
@@ -295,11 +298,11 @@ def generate3Cards(bg, img1, img2, img3, name1, name2, name3, debug=True):
 
     if debug:
         bbs_img = BoundingBoxesOnImage(bbs, shape=img_aug.shape)
-        # image_after = kps_aug.draw_on_image(image_after, size=5)
         image_after = bbs_img.draw_on_image(img_aug)
+        display("Generated image", img_aug)
         display('3 cards', image_after)
 
-    return img_aug, bbs
+    return (img_aug, bbs)
 
 
 def generateImagesFromImages(path):
@@ -335,8 +338,7 @@ def main():
     testFilePath = os.path.join(TEST_DIR,  "2c.jpg")
     testImg = cv.imread(testFilePath)
     display("Test Image", testImg)
-    _, perspectiveImage = extractImage(testImg, debug=False)
-    perspectiveImage = cv.resize(perspectiveImage, (CARD_W, CARD_H))
+    _, perspectiveImage = extractImage(testImg, DEBUG)
 
     # load backgrounds
     backgrounds = []
@@ -357,23 +359,28 @@ def main():
 
     # extract image from video / generate images w different brightness and store it in a dict
     cards = generateImages()
+    if not os.path.exists(GENERATED_DIR):
+        os.mkdir(GENERATED_DIR)
 
     # generate images w 2 cards w random orientation
-    for i in trange(1, 101):
+    i = 1
+    for i in trange(1, LIMIT+1):
         img1, name1 = getRandomCard(cards)
         img2, name2 = getRandomCard(cards)
-        img, bbs = generate2Cards(backgrounds[getRandomIndex(backgrounds)], img1, img2, name1, name2, True)
+        img, bbs = generate2Cards(backgrounds[getRandomIndex(backgrounds)], img1, img2, name1, name2, DEBUG)
         imgPath = '{}/{}.png'.format(GENERATED_DIR, i)
         cv.imwrite(imgPath, img)
         createVocFile(imgPath, bbs)
-        # display("Generated image", img)
 
     # generate images w 3 cards w random orientation
-    for _ in range(100):
+    for i in trange(i, i+LIMIT+1):
         img1, name1 = getRandomCard(cards)
         img2, name2 = getRandomCard(cards)
         img3, name3 = getRandomCard(cards)
-        generate3Cards(backgrounds[getRandomIndex(backgrounds)], img1, img2, img3, name1, name2, name3)
+        img, bbs = generate3Cards(backgrounds[getRandomIndex(backgrounds)], img1, img2, img3, name1, name2, name3, DEBUG)
+        imgPath = '{}/{}.png'.format(GENERATED_DIR, i)
+        cv.imwrite(imgPath, img)
+        createVocFile(imgPath, bbs)
 
 if __name__ == "__main__":
     main()
