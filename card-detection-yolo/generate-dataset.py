@@ -21,7 +21,7 @@ CARD_W, CARD_H = (200, 300)
 START_X, START_Y = ((IMG_W-CARD_W)//2, (IMG_H-CARD_H)//2)
 OVERLAP_RATIO = 0.2
 DEBUG = False
-LIMIT = 100
+LIMIT = 18000
 
 CARD_SUITS=['s', 'h', 'd', 'c']
 CARD_VALUES=['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2']
@@ -132,7 +132,7 @@ def extractImage(img, debug=False):
     cannyImg = cv.Canny(cv.cvtColor(img,  cv.COLOR_BGR2GRAY), 100, 400)
     copy = img.copy()
     # https://stackoverflow.com/a/40741735
-    contour = sorted(cv.findContours(cannyImg,  cv.RETR_LIST, cv.CHAIN_APPROX_NONE)[0], key=cv.contourArea, reverse=True)[0]
+    contour = max(cv.findContours(cannyImg,  cv.RETR_LIST, cv.CHAIN_APPROX_NONE)[0], key=cv.contourArea)
 
     # https://docs.opencv.org/3.4/dd/d49/tutorial_py_contour_features.html
     # https://docs.opencv.org/3.0-beta/doc/py_tutorials/py_imgproc/py_geometric_transformations/py_geometric_transformations.html#rotation
@@ -148,17 +148,17 @@ def extractImage(img, debug=False):
         return isValid, None
 
     w, h = rect[1]
-    if (w > h):
+    if (w < h):
          h, w = rect[1]
+         box = np.roll(box, -1, axis=0)
     destPts = np.array([[0, 0], [w, 0], [w, h], [0, h]]).astype(np.float32)
     M = cv.getPerspectiveTransform(box.astype(np.float32), destPts)
     perspectiveImage = cv.warpPerspective(img, M, (int(w), int(h)))
     perspectiveImage = cv.resize(perspectiveImage, (CARD_W, CARD_H))
 
-    cv.drawContours(copy,  contour, -1, (0, 0, 255), 2, cv.LINE_AA)
-    cv.drawContours(copy, [box], 0, (255, 0, 0), 2)
-
     if debug:
+        cv.drawContours(copy,  contour, -1, (0, 0, 255), 2, cv.LINE_AA)
+        cv.drawContours(copy, [box], 0, (255, 0, 0), 2)
         display("Canny Image", cannyImg)
         display("Image with contours", copy)
         display("Perspective Transform", perspectiveImage)
@@ -326,7 +326,7 @@ def generateImages(video=False):
     for suit in CARD_SUITS:
         for value in CARD_VALUES:
             val = f'{value}{suit}'
-            path = '{}/{}.{}'.format(TEST_DIR, val, ext)
+            path = '{}/{}.{}'.format(DATA_DIR, val, ext)
             processedCards = func(path)
             if processedCards == None:
                 continue
@@ -337,18 +337,8 @@ def generateImages(video=False):
 def main():
     testFilePath = os.path.join(TEST_DIR,  "2c.jpg")
     testImg = cv.imread(testFilePath)
-    display("Test Image", testImg)
     _, perspectiveImage = extractImage(testImg, DEBUG)
-
-    # load backgrounds
-    backgrounds = []
-    # for dir in glob(DTD_DIR + "/*"):
-    # for file in glob(dir + "banded/*.jpg"):
-    # TODO: change to whole directory instead of only `banded/*`
-    for file in tqdm(glob(DTD_DIR + "/banded/*.jpg")):
-        backgrounds.append(cv.imread(file))
-    print(f'Total backgrounds: {len(backgrounds)}')
-
+    
     # get the hull coordinates, i tried to automate it but it didn't go as 
     # expected cause i wanted something that worked on all datasets(different kind of images)
     cv.namedWindow("Select Coordinates")
@@ -356,6 +346,14 @@ def main():
     Card.sample = perspectiveImage.copy()
     Card.findConvexHull()
     Card.calcKps()
+
+    # load backgrounds
+    backgrounds = []
+    # for file in tqdm(glob(DTD_DIR + "/banded/*.jpg")):
+    # TODO: change to whole directory instead of only `banded/*`
+    for file in tqdm(glob(DTD_DIR + "/*/*.jpg")):
+        backgrounds.append(cv.imread(file))
+    print(f'Total backgrounds: {len(backgrounds)}')
 
     # extract image from video / generate images w different brightness and store it in a dict
     cards = generateImages()
