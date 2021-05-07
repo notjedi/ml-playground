@@ -16,7 +16,7 @@ TEST_DIR = "/mnt/Seagate/Code/ml-playground/card-detection-yolo/test"
 DTD_DIR="/mnt/Seagate/Code/ml-playground/card-detection-yolo/dtd/images"
 GENERATED_DIR = "{}/generated".format(DATA_DIR)
 
-IMG_W, IMG_H = (720, 720)
+IMG_W, IMG_H = (704, 704)
 CARD_W, CARD_H = (200, 300)
 START_X, START_Y = ((IMG_W-CARD_W)//2, (IMG_H-CARD_H)//2)
 OVERLAP_RATIO = 0.2
@@ -24,6 +24,9 @@ OVERLAP_RATIO = 0.2
 CARD_SUITS=['s', 'h', 'd', 'c']
 CARD_VALUES=['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2']
 
+mod = iaa.Sequential([
+    iaa.Multiply((0.5, 1.5))
+])
 sequential = iaa.Sequential([
     # TODO: add Flipud() maybe
     iaa.Affine(scale=0.7),
@@ -113,7 +116,7 @@ def display(title, img):
 
 
 def getRandomIndex(input):
-    return np.random.randint(0, len(input)-1, size=1)[0]
+    return np.random.randint(0, len(input), size=1)[0]
 
 
 def getRandomCard(cards):
@@ -123,10 +126,11 @@ def getRandomCard(cards):
 
 def extractImage(img, debug=False):
 
-    cannyImg = cv.Canny(cv.cvtColor(img,  cv.COLOR_BGR2GRAY), 400, 600)
+    # TWEAK
+    cannyImg = cv.Canny(cv.cvtColor(img,  cv.COLOR_BGR2GRAY), 100, 400)
     copy = img.copy()
     # https://stackoverflow.com/a/40741735
-    contour = max(cv.findContours(cannyImg,  cv.RETR_LIST, cv.CHAIN_APPROX_NONE)[0], key=cv.contourArea)
+    contour = sorted(cv.findContours(cannyImg,  cv.RETR_LIST, cv.CHAIN_APPROX_NONE)[0], key=cv.contourArea, reverse=True)[0]
 
     # https://docs.opencv.org/3.4/dd/d49/tutorial_py_contour_features.html
     # https://docs.opencv.org/3.0-beta/doc/py_tutorials/py_imgproc/py_geometric_transformations/py_geometric_transformations.html#rotation
@@ -136,14 +140,14 @@ def extractImage(img, debug=False):
 
     rectArea = cv.contourArea(box)
     contourArea = cv.contourArea(contour)
-    VALID_THRESHOLD = 0.95
+    VALID_THRESHOLD = 0.1
     isValid = contourArea/rectArea > VALID_THRESHOLD
     if (not isValid):
         return isValid, None
 
     w, h = rect[1]
-    if (rect[1][0] > rect[1][1]):
-        h, w = rect[1]
+    if (w > h):
+         h, w = rect[1]
     destPts = np.array([[0, 0], [w, 0], [w, h], [0, h]]).astype(np.float32)
     M = cv.getPerspectiveTransform(box.astype(np.float32), destPts)
     perspectiveImage = cv.warpPerspective(img, M, (int(w), int(h)))
@@ -157,6 +161,14 @@ def extractImage(img, debug=False):
         display("Perspective Transform", perspectiveImage)
 
     return isValid, perspectiveImage
+
+
+def modifyImages(img):
+    cards = []
+    for _ in range(50):
+        modImg = cv.resize(mod(image=img), (CARD_W, CARD_H))
+        cards.append(modImg)
+    return cards
 
 
 def extractImagesFromVideo(path):
@@ -264,18 +276,17 @@ def generate3Cards(bg, img1, img2, img3, name1, name2, name3, debug=True):
     scaled_img2[START_Y:START_Y+CARD_H, START_X:START_X+CARD_W, :] = img2
     scaled_img3[START_Y:START_Y+CARD_H, START_X:START_X+CARD_W, :] = img3
 
-    kps = KeypointsOnImage(Card.kps, shape=scaled_img1.shape)
-
-    img1, kps1 = augment(scaled_img1, kps[:4], seq1)
-    img2, kps2 = augment(scaled_img2, kps[:4], seq2)
-    img3, kps3 = augment(scaled_img3, kps, seq3)
+    img1, kps1 = augment(scaled_img1, Card.kps[:4], seq1)
+    img2, kps2 = augment(scaled_img2, Card.kps[:4], seq2)
+    img3, kps3 = augment(scaled_img3, Card.kps[:], seq3)
     kps1 = KeypointsOnImage(kps1, shape=scaled_img1.shape)
     kps2 = KeypointsOnImage(kps2, shape=scaled_img2.shape)
+    kps3 = KeypointsOnImage(kps3, shape=scaled_img3.shape)
     bg = scale_bg(image=bg)
 
     img_aug = np.where(img2, img2, img1)
     img_aug = np.where(img3, img3, img_aug)
-    img_aug, (kps_aug) = augment(img_aug, [kps1, kps2, kps3], rot_3images, True)
+    img_aug, kps_aug = augment(img_aug, [kps1, kps2, kps3], rot_3images, True)
     img_aug = np.where(img_aug, img_aug, bg)
     bbs = [kpsToBB(name1, kps_aug[0])]
     bbs += [kpsToBB(name2, kps_aug[1])]
@@ -291,10 +302,41 @@ def generate3Cards(bg, img1, img2, img3, name1, name2, name3, debug=True):
     return img_aug, bbs
 
 
+def generateImagesFromImages(path):
+    if not os.path.exists(path):
+        # print('{} does not exist'.format(path))
+        return
+
+    isValid, img = extractImage(cv.imread(path))
+    if not isValid:
+        return None
+    modifiedImages = modifyImages(img)
+    return modifiedImages
+
+
+def generateImages(video=False):
+
+    cards = defaultdict(list)
+    func = extractImagesFromVideo if video else generateImagesFromImages
+    ext = 'avi' if video else 'jpg'
+    
+    for suit in CARD_SUITS:
+        for value in CARD_VALUES:
+            val = f'{value}{suit}'
+            path = '{}/{}.{}'.format(TEST_DIR, val, ext)
+            processedCards = func(path)
+            if processedCards == None:
+                continue
+            cards[val] = processedCards
+    return cards
+                
+
 def main():
-    testFilePath = os.path.join(TEST_DIR,  "sample.png")
+    testFilePath = os.path.join(TEST_DIR,  "2c.jpg")
     testImg = cv.imread(testFilePath)
-    _, perspectiveImage = extractImage(testImg)
+    display("Test Image", testImg)
+    _, perspectiveImage = extractImage(testImg, debug=False)
+    perspectiveImage = cv.resize(perspectiveImage, (CARD_W, CARD_H))
 
     # load backgrounds
     backgrounds = []
@@ -313,33 +355,25 @@ def main():
     Card.findConvexHull()
     Card.calcKps()
 
-    # extract image from video and store it in a dict
-    cards = defaultdict(list)
-    for suit in CARD_SUITS:
-        for value in CARD_VALUES:
-            val = f'{value}{suit}'
-            path = '{}/{}.avi'.format(TEST_DIR, val)
-            processedCards = extractImagesFromVideo(path)
-            if processedCards == None:
-                continue
-            cards[val] += processedCards
+    # extract image from video / generate images w different brightness and store it in a dict
+    cards = generateImages()
 
+    # generate images w 2 cards w random orientation
+    for i in trange(1, 101):
+        img1, name1 = getRandomCard(cards)
+        img2, name2 = getRandomCard(cards)
+        img, bbs = generate2Cards(backgrounds[getRandomIndex(backgrounds)], img1, img2, name1, name2, True)
+        imgPath = '{}/{}.png'.format(GENERATED_DIR, i)
+        cv.imwrite(imgPath, img)
+        createVocFile(imgPath, bbs)
+        # display("Generated image", img)
+
+    # generate images w 3 cards w random orientation
     for _ in range(100):
         img1, name1 = getRandomCard(cards)
         img2, name2 = getRandomCard(cards)
         img3, name3 = getRandomCard(cards)
         generate3Cards(backgrounds[getRandomIndex(backgrounds)], img1, img2, img3, name1, name2, name3)
-
-    # generate images with 2 cards w random orientation
-    # for i in trange(1, 101):
-    #     img1, name1 = getRandomCard(cards)
-    #     img2, name2 = getRandomCard(cards)
-    #     img, bbs = generate2Cards(backgrounds[getRandomIndex(backgrounds)], img1, img2, name1, name2, True)
-    #     imgPath = '{}/{}.png'.format(GENERATED_DIR, i)
-    #     cv.imwrite(imgPath, img)
-    #     createVocFile(imgPath, bbs)
-    #     display("Generated image", img)
-
 
 if __name__ == "__main__":
     main()

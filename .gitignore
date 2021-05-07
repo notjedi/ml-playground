@@ -129,4 +129,5 @@ dmypy.json
 .pyre/
 
 card-detection-yolo/data/generated/*
+card-detection-yolo/data/copy/*
 card-detection-yolo/dtd/*
