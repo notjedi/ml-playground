@@ -14,14 +14,14 @@ from imgaug.augmentables.bbs import BoundingBox, BoundingBoxesOnImage
 DATA_DIR = "/mnt/Seagate/Code/ml-playground/card-detection-yolo/data"
 TEST_DIR = "/mnt/Seagate/Code/ml-playground/card-detection-yolo/test"
 DTD_DIR="/mnt/Seagate/Code/ml-playground/card-detection-yolo/dtd/images"
-GENERATED_DIR = "{}/generated".format(DATA_DIR)
+GENERATED_DIR = "{}/generated/test".format(DATA_DIR)
 
 IMG_W, IMG_H = (704, 704)
 CARD_W, CARD_H = (200, 300)
 START_X, START_Y = ((IMG_W-CARD_W)//2, (IMG_H-CARD_H)//2)
 OVERLAP_RATIO = 0.2
 DEBUG = False
-LIMIT = 18000
+LIMIT = 4000
 
 CARD_SUITS=['s', 'h', 'd', 'c']
 CARD_VALUES=['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2']
@@ -346,6 +346,7 @@ def main():
     Card.sample = perspectiveImage.copy()
     Card.findConvexHull()
     Card.calcKps()
+    print(Card.kps)
 
     # load backgrounds
     backgrounds = []
@@ -371,7 +372,7 @@ def main():
         createVocFile(imgPath, bbs)
 
     # generate images w 3 cards w random orientation
-    for i in trange(i, i+LIMIT+1):
+    for i in trange(i, i+LIMIT):
         img1, name1 = getRandomCard(cards)
         img2, name2 = getRandomCard(cards)
         img3, name3 = getRandomCard(cards)

@@ -1,18 +1,17 @@
 import glob
 import os
-import pickle
 import xml.etree.ElementTree as ET
-from os import listdir, getcwd
-from os.path import join
+from tqdm import tqdm
+from os import getcwd
 
-dirs = ['train', 'val']
-classes = ['person', 'car']
+dirs = ['data/generated/test']
+classes = ['Ah', 'Qh', '10h', '9h', '8h', '7h', '5h', '4h', '3h', '2h', 'Ad', 'Kd', 'Qd', 'Jd', '10d', '9d', '8d', '7d', '6d', '5d', '4d', '3d', '2d', 
+           'Ac', 'Kc', 'Qc', '10c', '9c', '8c', '7c', '6c', '5c', '4c', '3c', '2c', 'As', 'Ks', 'Qs', 'Js', '10s', '9s', '8s', '7s', '6s', '5s', '4s', '3s', '2s']
 
 def getImagesInDir(dir_path):
     image_list = []
-    for filename in glob.glob(dir_path + '/*.jpg'):
+    for filename in glob.glob(dir_path + '/*.png'):
         image_list.append(filename)
-
     return image_list
 
 def convert(size, box):
@@ -63,7 +62,7 @@ for dir_path in dirs:
     image_paths = getImagesInDir(full_dir_path)
     list_file = open(full_dir_path + '.txt', 'w')
 
-    for image_path in image_paths:
+    for image_path in tqdm(image_paths):
         list_file.write(image_path + '\n')
         convert_annotation(full_dir_path, output_path, image_path)
     list_file.close()

@@ -43,12 +43,9 @@ class DecisionTreeClassifer():
                 classes_left[c] += 1
                 classes_right[c] -= 1
 
-                gini_left = 1 - \
-                    (np.sum((classes_left[x] / i) ** 2)
+                gini_left = 1 - (np.sum((classes_left[x] / i) ** 2)
                      for x in self.classes_)
-                gini_right = 1 - \
-                    (np.sum((classes_right[x] / (self.n_samples_ - i)) ** 2)
-                     for x in self.classes_)
+                gini_right = 1 - (np.sum((classes_right[x] / (self.n_samples_ - i)) ** 2) for x in self.classes_)
 
                 gini = (i * gini_left + (self.n_samples_ - i)
                         * gini_right) / self.n_samples_
