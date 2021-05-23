@@ -128,7 +128,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-neural-net-pytorch/data/*
+mnist-digit-recognition/data/
 
 card-detection-yolo/data/generated/*
 card-detection-yolo/data/copy/*
