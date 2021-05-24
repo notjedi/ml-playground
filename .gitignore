@@ -133,3 +133,5 @@ mnist-digit-recognition/data/
 card-detection-yolo/data/generated/*
 card-detection-yolo/data/copy/*
 card-detection-yolo/dtd/*
+
+nlp/data/
