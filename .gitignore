@@ -130,6 +130,8 @@ dmypy.json
 
 mnist-digit-recognition/data/
 
+cifar10/data/
+
 card-detection-yolo/data/generated/*
 card-detection-yolo/data/copy/*
 card-detection-yolo/dtd/*
