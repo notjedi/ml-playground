@@ -33,7 +33,11 @@ def convert_annotation(dir_path, output_path, image_path):
 
     in_file = open(dir_path + '/' + basename_no_ext + '.xml')
     out_file = open(output_path + basename_no_ext + '.txt', 'w')
-    tree = ET.parse(in_file)
+    try:
+        tree = ET.parse(in_file)
+    except UnicodeDecodeError:
+        print(in_file.name)
+        return
     root = tree.getroot()
     size = root.find('size')
     w = int(size.find('width').text)
